@@ -3,7 +3,7 @@
 #include<sys/socket.h>
 #include<string.h>
 #include<arpa/inet.h>   //网络编程，客户端信息转换用
-#include<unistd.h>      //为类Unix系统中的C/C++提供系统调用api
+#include<unistd.h>      //为类Unix系统中的C/C++提供操作系统系统调用api
 
 int main() {
 
@@ -13,7 +13,19 @@ int main() {
     // 套接字地址描述结构，用于初始化向服务端发送请求
     struct sockaddr_in server_addr;
 
-    
+    bzero(&server_addr, sizeof(server_addr));
+
+
+    server_addr.sin_family = AF_INET;
+
+
+    server_addr.sin_addr.s_addr = inet_addr("");
+
+
+    server_addr.sin_port = htons();
+
+
+    connect(sock, (struct sockaddr*)&server_addr, sizeof(server_addr));
 
 
 }
