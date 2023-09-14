@@ -14,7 +14,7 @@ int main() {
     struct sockaddr_in server_addr;
 
     // 初始化内存地址区域的值为0
-    bzero(&server_addr, sizeof(server_addr));
+    memset(&server_addr, 0, sizeof(server_addr));
 
     // 协议族：IPv4
     server_addr.sin_family = AF_INET;
