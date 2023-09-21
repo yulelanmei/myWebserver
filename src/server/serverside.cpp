@@ -8,8 +8,10 @@
 #include<fcntl.h>
 
 #define MAX_IP_ADDR_LEN 16
+#define MAX_EVENTS 10
 
-void set_epoll_events(int epoll_fd, int fd, int event, int op) {
+// 设置或修改epoll_event
+void set_epoll_events(int epoll_fd, int fd, int op, int event = 0) {
     /*
     epoll_event是一个结构体，用于表示epoll中的事件。其成员变量有evens和data
     events字段是一个位掩码，表示了要监听的事件类型：
@@ -44,8 +46,8 @@ void set_epoll_events(int epoll_fd, int fd, int event, int op) {
 }
 
 //  将文件描述符添加进入epoll中
-void Add_FD_in_epoll(int epoll_fd, int fd, int event) {
-    set_epoll_events(epoll_fd, fd, event, EPOLL_CTL_ADD);
+void add_fd_in_epoll(int epoll_fd, int fd, int event = 0) {
+    set_epoll_events(epoll_fd, fd, EPOLL_CTL_ADD, event);
     set_fd_status(fd, O_NONBLOCK);  //  对文件描述符设置为非阻塞
 }
 
@@ -130,48 +132,84 @@ int main() {
     if (epoll_fd < 0) {
         perror("Create Epoll FD Error!\n");
     }
-    
-    
+    epoll_event events[MAX_EVENTS];
+    // 在内核事件表中注册 监听套接字，当监听到连接时其变为就绪事件
+    add_fd_in_epoll(epoll_fd, listenSock);
 
-    /*
-    /   accept函数从已完成连接队列队头取出一个socket。
-    /   如果已完成连接队列为空，那么阻塞等待。
-    /   - sockfd：套接字的文件描述符，这个套接字在listen后处于监听状态。
-    /   - addr：（可选）指向一个结构的指针，该结构将被填充与已接受连接的对端的地址信息。
-    /   - addrlen：（可选）是一个值-结果参数，初始时为addr所指向的缓冲区的大小，返回时为存储在该缓冲区的地址结构的实际大小（以字节为单位）。
-    /   - 如果函数调用成功，返回一个新的套接字文件描述符。这个新的描述符代表与客户端的新的连接。这个连接是独立于监听套接字的。
-    /   - 如果函数调用失败，返回-1。                    
-    */
-    struct sockaddr_in cilent_addr;
-    socklen_t cilent_addr_size = sizeof(cilent_addr);
-    int clientSock = accept(listenSock, 
-                    (struct sockaddr*)&cilent_addr, &cilent_addr_size);
-    if (clientSock < 0) {
-        perror("Server Accept Error!\n");
-    }                    
+    while(1) {
+        /*
+        epoll_wait用于等待I/O就绪事件，参数如下：
+        - epfd：由epoll_create或epoll_create1创建的epoll文件描述符。
+        - events：用于接收就绪事件的数组。
+        - maxevents：events数组可以容纳的最大事件数。
+        - timeout：等待事件的最大时间（以毫秒为单位）。如果设置为-1，epoll_wait将无限期等待。
+        返回就绪的事件数，如果超时或出错，返回0或-1。
+        */
+        int epoll_events_ready = epoll_wait(epoll_fd, events, MAX_EVENTS, -1);
+        if (epoll_events_ready == 0) {
+            printf("wait epoll event timeout\n");
+        } else if (epoll_events_ready < 0) {
+            perror("wait epoll event error!\n");
+        } 
 
-    /*
-    write函数用于向一个已连接的套接字写入数据。
-    - fd：已连接的套接字的文件描述符。
-    - buf：指向要发送数据的缓冲区的指针。
-    - count：要写入的字节数。
-    - 如果函数调用成功，返回实际写入的字节数。这可能少于请求的字节数，因为可能会发生信号中断或其他因素。
-    - 如果函数调用失败，返回-1。
-    */
-    char* massage_to_be_send = "Hello Clinet";
-    ssize_t Bytes_Written_in = write(clientSock, massage_to_be_send, sizeof(massage_to_be_send));
-    if (Bytes_Written_in < 0) {
-        perror("Server Write Error!\n");
-    } else {
-        printf("Server Write %d in Socket\n");
+        for (int i = 0; i < epoll_events_ready; i++) {
+            int socket_fd_ready = events[i].data.fd;
+            if (socket_fd_ready == listenSock) {    // 新的连接抵达
+                printf("new connection come: %d", socket_fd_ready);
+                struct sockaddr_in cilent_addr;
+                socklen_t cilent_addr_size = sizeof(cilent_addr);
+                while (1) {
+                    /*
+                    /   accept函数从已完成连接队列队头取出一个socket。
+                    /   如果已完成连接队列为空，那么阻塞等待。
+                    /   - sockfd：套接字的文件描述符，这个套接字在listen后处于监听状态。
+                    /   - addr：（可选）指向一个结构的指针，该结构将被填充与已接受连接的对端的地址信息。
+                    /   - addrlen：（可选）是一个值-结果参数，初始时为addr所指向的缓冲区的大小，返回时为存储在该缓冲区的地址结构的实际大小（以字节为单位）。
+                    /   - 如果函数调用成功，返回一个新的套接字文件描述符。这个新的描述符代表与客户端的新的连接。这个连接是独立于监听套接字的。
+                    /   - 如果函数调用失败，返回-1。                    
+                    */
+                    int clientSock = accept(listenSock, 
+                        (struct sockaddr*)&cilent_addr, &cilent_addr_size);
+                    if (clientSock < 0) {
+                        perror("Server Accept Error!\n");
+                        break;
+                    }
+
+                    /*
+                    write函数用于向一个已连接的套接字写入数据。
+                    - fd：已连接的套接字的文件描述符。
+                    - buf：指向要发送数据的缓冲区的指针。
+                    - count：要写入的字节数。
+                    - 如果函数调用成功，返回实际写入的字节数。这可能少于请求的字节数，因为可能会发生信号中断或其他因素。
+                    - 如果函数调用失败，返回-1。
+                    */
+                    char* massage_to_be_send = "Hello Clinet";
+                    ssize_t Bytes_Written_in = write(clientSock, massage_to_be_send, sizeof(massage_to_be_send));
+                    if (Bytes_Written_in < 0) {
+                        perror("Server Write Error!\n");
+                    } else {
+                        printf("Server Write %d in Socket\n");
+                    }
+                }                
+            } else if (events[i].events & EPOLLHUP) {   //  断开
+                printf("connection interrupted\n");
+
+                if (close(socket_fd_ready) < 0) {
+                    perror("close socket_fd_ready error!\n");
+                }
+            } else if (events[i].events & EPOLLIN) {    //  读数据处理
+                
+            } else if (events[i].events & EPOLLOUT) {   //  写数据处理
+
+            }
+            // 重置epoll状态
+            set_epoll_events(epoll_fd, socket_fd_ready, EPOLL_CTL_MOD);
+        }
     }
-
-    // 关闭两个套接字
+    
+    // 关闭套接字
     if (close(listenSock) < 0) {
         perror("Server Close listenSock Error!\n");
-    }
-    if (close(clientSock) < 0) {
-        perror("Serve Close clientSock Error!\n");
     }
 
     return 0;
